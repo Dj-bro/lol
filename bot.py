@@ -6,12 +6,13 @@ import datetime
 import logging
 import secrets
 from telethon import TelegramClient, events
+from telethon.errors import FloodWaitError
 
 # Configuration
 API_ID = 19485675  # <-- Apna API ID yahan daalo
-API_HASH = "14e59046dacdc958e5f1936019fb064b" # <-- Apna API Hash yahan daalo
-BOT_TOKEN = "7944623129:AAERgJq7BtJJL8ihgHA41zriOJW7I0eN1Sc"  # <-- Apna bot token yahan daalo
-GEMINI_API_KEY = "AIzaSyA0TFr2rP9CKGb6l7CH4L3uJ3R-LpcCANw"  # <-- Gemini API Key
+API_HASH = "14e59046dacdc958e5f1936019fb064b"  # <-- Apna API Hash yahan daalo
+BOT_TOKEN = "AAERgJq7BtJJL8ihgHA41zriOJW7I0eN1Sc"  # <-- Apna bot token yahan daalo
+GEMINI_API_KEY = "AIzaSyAXTmJbFfFQBU0bFKpswCyfCytoCL7LfLU"  # <-- Gemini API Key
 JWT_SECRET = secrets.token_urlsafe(32)  # <-- Secret Key for JWT Tokens
 JWT_ALGORITHM = "HS256"
 
@@ -28,12 +29,19 @@ client = TelegramClient('bot_session', API_ID, API_HASH).start(bot_token=BOT_TOK
 @client.on(events.NewMessage)
 async def handle_messages(event):
     """Handle text messages and file uploads"""
-    if event.message.file:
-        file_name = event.message.file.name.lower()
-        if file_name.endswith(".dat") or file_name.endswith(".json"):
-            await process_file(event, file_name)
-    else:
-        await chat_with_gemini(event)
+    try:
+        if event.message.file:
+            file_name = event.message.file.name.lower()
+            if file_name.endswith(".dat") or file_name.endswith(".json"):
+                await process_file(event, file_name)
+        else:
+            await chat_with_gemini(event)
+    except FloodWaitError as e:
+        logger.warning(f"Flood wait detected! Sleeping for {e.seconds} seconds...")
+        await asyncio.sleep(e.seconds)
+        await handle_messages(event)  # Retry after sleep
+    except Exception as e:
+        logger.error(f"Unexpected error in handle_messages: {e}")
 
 async def process_file(event, file_name):
     """Process uploaded files based on their format"""
@@ -44,23 +52,23 @@ async def process_file(event, file_name):
             if extracted_data:
                 with open(guest_data_file, 'w') as f:
                     json.dump(extracted_data, f, indent=4)
-                await event.reply("✅ Guest data extracted! Sending guest_data.json...")
-                await event.respond(file=guest_data_file)
+                await safe_send(event, "✅ Guest data extracted! Sending guest_data.json...")
+                await safe_send(event, file=guest_data_file)
                 logger.info("Guest data successfully extracted and sent.")
             else:
-                await event.reply("❌ No valid guest data found!")
+                await safe_send(event, "❌ No valid guest data found!")
         elif file_name.endswith(".json"):
             await receive_modified_json(file_path, event)
     except Exception as e:
         logger.error(f"Error processing file {file_name}: {e}")
-        await event.reply(f"❌ Error processing {file_name}!")
+        await safe_send(event, f"❌ Error processing {file_name}!")
 
 def extract_guest_data(file_path):
     """Extract UID and password from guest.dat file"""
     try:
         with open(file_path, 'rb') as f:
             raw_data = f.read().decode(errors='ignore')
-            return [{"UID": "123456", "Password": "abcdef"}]
+            return [{"UID": "123456", "Password": "abcdef"}]  # Dummy data, modify as needed
     except Exception as e:
         logger.error(f"Error extracting guest data: {e}")
         return []
@@ -73,12 +81,12 @@ async def receive_modified_json(file_path, event):
         tokens = generate_tokens(data)
         with open(tokens_file, 'w') as f:
             json.dump(tokens, f, indent=4)
-        await event.reply("✅ Tokens generated! Sending tokens.json...")
-        await event.respond(file=tokens_file)
+        await safe_send(event, "✅ Tokens generated! Sending tokens.json...")
+        await safe_send(event, file=tokens_file)
         logger.info("JWT Tokens successfully generated and sent.")
     except Exception as e:
         logger.error(f"Error generating tokens: {e}")
-        await event.reply("❌ Error generating JWT tokens!")
+        await safe_send(event, "❌ Error generating JWT tokens!")
 
 def generate_tokens(data):
     """Generate JWT tokens for each UID"""
@@ -104,15 +112,29 @@ async def chat_with_gemini(event):
         data = {"contents": [{"parts": [{"text": user_message}]}]}
         response = requests.post(url, headers=headers, json=data)
         response_json = response.json()
+        
         if "candidates" in response_json:
             reply_text = response_json["candidates"][0]["content"]["parts"][0]["text"]
         else:
             reply_text = "❌ Gemini AI response error!"
-        await event.reply(reply_text)
+        
+        await safe_send(event, reply_text)
         logger.info("Gemini AI response sent successfully.")
     except Exception as e:
         logger.error(f"Error in Gemini AI API: {e}")
-        await event.reply("❌ Error communicating with Gemini AI!")
+        await safe_send(event, "❌ Error communicating with Gemini AI!")
+
+async def safe_send(event, message=None, file=None):
+    """Send messages safely with flood wait handling"""
+    try:
+        if file:
+            await event.respond(file=file)
+        else:
+            await event.reply(message)
+    except FloodWaitError as e:
+        logger.warning(f"Flood wait detected! Sleeping for {e.seconds} seconds before retrying...")
+        await asyncio.sleep(e.seconds)
+        await safe_send(event, message, file)  # Retry after waiting
 
 print("✅ Bot is running with Gemini AI and real JWT tokens...")
 logger.info("Bot setup successfully.")
