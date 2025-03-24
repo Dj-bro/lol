@@ -8,40 +8,63 @@ import secrets
 from telethon import TelegramClient, events
 from telethon.errors import FloodWaitError
 
-# Configuration
+# 🔹 Bot Configuration
 API_ID = 19485675  # <-- Apna API ID yahan daalo
 API_HASH = "14e59046dacdc958e5f1936019fb064b"  # <-- Apna API Hash yahan daalo
 BOT_TOKEN = "7944623129:AAEiTQCnSoiONVnP8dnsbSXRFVo6MfxgWd8"  # <-- Apna bot token yahan daalo
 GEMINI_API_KEY = "AIzaSyAXTmJbFfFQBU0bFKpswCyfCytoCL7LfLU"  # <-- Gemini API Key
-JWT_SECRET = secrets.token_urlsafe(32)  # <-- Secret Key for JWT Tokens
+JWT_SECRET = secrets.token_urlsafe(32)  # <-- JWT Key (Secret)
 JWT_ALGORITHM = "HS256"
 
 guest_data_file = "guest_data.json"
 tokens_file = "tokens.json"
 
-# Logging setup
+# 🔹 Logging setup
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-# Initialize Telegram Client
+# 🔹 Initialize Telegram Client
 client = TelegramClient('bot_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
+
+# 🛑 Cooldown system (Loop prevention)
+recent_users = set()
 
 @client.on(events.NewMessage)
 async def handle_messages(event):
     """Handle text messages and file uploads"""
     try:
+        user_id = event.sender_id
+        message_text = event.message.text
+
+        # ✅ Handle /start command
+        if message_text == "/start":
+            await event.reply("✅ Bot is active!\nSend a guest.dat file to extract UID & Password or use AI chat.")
+            return
+        
+        # 🛑 Prevent AI spam loop
+        if user_id in recent_users:
+            await event.reply("⏳ Ruko thoda! AI processing ho raha hai.")
+            return
+        recent_users.add(user_id)
+        asyncio.create_task(remove_user_from_set(user_id))
+
+        # 📂 File handling (guest.dat, guest_data.json)
         if event.message.file:
             file_name = event.message.file.name.lower()
             if file_name.endswith(".dat") or file_name.endswith(".json"):
                 await process_file(event, file_name)
         else:
-            await chat_with_gemini(event)
+            await chat_with_gemini(event)  # Gemini AI handle karega
     except FloodWaitError as e:
         logger.warning(f"Flood wait detected! Sleeping for {e.seconds} seconds...")
         await asyncio.sleep(e.seconds)
         await handle_messages(event)  # Retry after sleep
     except Exception as e:
         logger.error(f"Unexpected error in handle_messages: {e}")
+
+async def remove_user_from_set(user_id):
+    await asyncio.sleep(5)  # 5 sec cooldown
+    recent_users.remove(user_id)
 
 async def process_file(event, file_name):
     """Process uploaded files based on their format"""
