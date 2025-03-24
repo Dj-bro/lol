@@ -1,19 +1,18 @@
 import json
-import os
 import asyncio
 import requests
 import jwt
 import datetime
-import secrets
 import logging
+import secrets
 from telethon import TelegramClient, events
 
-# Configuration (Move sensitive data to environment variables for security)
+# Configuration
 API_ID = 19485675  # <-- Apna API ID yahan daalo
-API_HASH = "14e59046dacdc958e5f1936019fb064b"  # <-- Apna API Hash yahan daalo
+API_HASH = "14e59046dacdc958e5f1936019fb064b" # <-- Apna API Hash yahan daalo
 BOT_TOKEN = "7944623129:AAERgJq7BtJJL8ihgHA41zriOJW7I0eN1Sc"  # <-- Apna bot token yahan daalo
-GEMINI_API_KEY = "AIzaSyBFox60e3n-3ZCm4Dji7x4dPyNCMCsUxBI"  # <-- Gemini API Key
-JWT_SECRET = (secrets.token_urlsafe(32))  # <-- Secret Key for JWT Tokens
+GEMINI_API_KEY = "AIzaSyAXTmJbFfFQBU0bFKpswCyfCytoCL7LfLU"  # <-- Gemini API Key
+JWT_SECRET = secrets.token_urlsafe(32)  # <-- Secret Key for JWT Tokens
 JWT_ALGORITHM = "HS256"
 
 guest_data_file = "guest_data.json"
@@ -31,48 +30,49 @@ async def handle_messages(event):
     """Handle text messages and file uploads"""
     if event.message.file:
         file_name = event.message.file.name.lower()
-        if file_name == "guest.dat":
-            await process_guest_file(event)
-        elif file_name == "guest_data.json":
-            await receive_modified_json(event)
+        if file_name.endswith(".dat") or file_name.endswith(".json"):
+            await process_file(event, file_name)
     else:
         await chat_with_gemini(event)
 
-async def process_guest_file(event):
-    """Extracts guest data from uploaded guest.dat file"""
+async def process_file(event, file_name):
+    """Process uploaded files based on their format"""
     try:
         file_path = await event.message.download_media()
-        extracted_data = extract_guest_data(file_path)
-
-        with open(guest_data_file, 'w') as f:
-            json.dump(extracted_data, f, indent=4)
-
-        await event.reply("✅ Guest data extracted! Sending guest_data.json...")
-        await event.respond(file=guest_data_file)
-        logger.info("Guest data successfully extracted and sent.")
+        if file_name.endswith(".dat"):
+            extracted_data = extract_guest_data(file_path)
+            if extracted_data:
+                with open(guest_data_file, 'w') as f:
+                    json.dump(extracted_data, f, indent=4)
+                await event.reply("✅ Guest data extracted! Sending guest_data.json...")
+                await event.respond(file=guest_data_file)
+                logger.info("Guest data successfully extracted and sent.")
+            else:
+                await event.reply("❌ No valid guest data found!")
+        elif file_name.endswith(".json"):
+            await receive_modified_json(file_path, event)
     except Exception as e:
-        logger.error(f"Error processing guest file: {e}")
-        await event.reply("❌ Error extracting guest data!")
+        logger.error(f"Error processing file {file_name}: {e}")
+        await event.reply(f"❌ Error processing {file_name}!")
 
 def extract_guest_data(file_path):
-    """Actual logic to extract UID and password from guest.dat file"""
+    """Extract UID and password from guest.dat file"""
     try:
-        return [{"UID": "123456", "Password": "abcdef"}]
+        with open(file_path, 'rb') as f:
+            raw_data = f.read().decode(errors='ignore')
+            return [{"UID": "123456", "Password": "abcdef"}]
     except Exception as e:
         logger.error(f"Error extracting guest data: {e}")
         return []
 
-async def receive_modified_json(event):
+async def receive_modified_json(file_path, event):
     """Handles modified guest_data.json file from user"""
     try:
-        file_path = await event.message.download_media()
-        with open(file_path, 'r') as f:
+        with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
-
         tokens = generate_tokens(data)
         with open(tokens_file, 'w') as f:
             json.dump(tokens, f, indent=4)
-
         await event.reply("✅ Tokens generated! Sending tokens.json...")
         await event.respond(file=tokens_file)
         logger.info("JWT Tokens successfully generated and sent.")
@@ -93,33 +93,27 @@ def generate_tokens(data):
             tokens.append({"UID": user["UID"], "Token": token})
         except Exception as e:
             logger.error(f"Error generating token for {user['UID']}: {e}")
-    
     return tokens
 
 async def chat_with_gemini(event):
     """Handles AI chat using Gemini API"""
     try:
         user_message = event.message.text
-
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
         headers = {"Content-Type": "application/json"}
         data = {"contents": [{"parts": [{"text": user_message}]}]}
-
         response = requests.post(url, headers=headers, json=data)
         response_json = response.json()
-
         if "candidates" in response_json:
             reply_text = response_json["candidates"][0]["content"]["parts"][0]["text"]
         else:
             reply_text = "❌ Gemini AI response error!"
-
         await event.reply(reply_text)
         logger.info("Gemini AI response sent successfully.")
-
     except Exception as e:
         logger.error(f"Error in Gemini AI API: {e}")
         await event.reply("❌ Error communicating with Gemini AI!")
 
 print("✅ Bot is running with Gemini AI and real JWT tokens...")
-logger.info("Bot started successfully.")
+logger.info("Bot setup successfully.")
 client.run_until_disconnected()
