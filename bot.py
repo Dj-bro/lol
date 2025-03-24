@@ -11,7 +11,7 @@ from telethon.errors import FloodWaitError
 # Configuration
 API_ID = 19485675  # <-- Apna API ID yahan daalo
 API_HASH = "14e59046dacdc958e5f1936019fb064b"  # <-- Apna API Hash yahan daalo
-BOT_TOKEN = "7944623129:AAERgJq7BtJJL8ihgHA41zriOJW7I0eN1Sc"  # <-- Apna bot token yahan daalo
+BOT_TOKEN = "7944623129:AAEiTQCnSoiONVnP8dnsbSXRFVo6MfxgWd8"  # <-- Apna bot token yahan daalo
 GEMINI_API_KEY = "AIzaSyAXTmJbFfFQBU0bFKpswCyfCytoCL7LfLU"  # <-- Gemini API Key
 JWT_SECRET = secrets.token_urlsafe(32)  # <-- Secret Key for JWT Tokens
 JWT_ALGORITHM = "HS256"
